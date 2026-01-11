@@ -40,17 +40,21 @@ func parseRequestLine(req []byte) (*RequestLine, error) {
 	for line := range strings.SplitSeq(string(req), "\r\n") {
 		data := strings.Split(line, " ")
 
+		if len(data) != 3 {
+			return nil, fmt.Errorf("bad request")
+		}
+
 		if data[0] != strings.ToUpper(data[0]) {
 			return nil, fmt.Errorf("method is not capital")
 		}
 
-		if !strings.Contains(data[2], "HTTP/") {
-			return nil, fmt.Errorf("version not started with HTTP")
+		if data[2] != "HTTP/1.1" {
+			return nil, fmt.Errorf("version not supported")
 		}
 
 		requestLine.Method = data[0]
 		requestLine.RequestTarget = data[1]
-		requestLine.HTTPVersion = data[2]
+		requestLine.HTTPVersion = strings.TrimPrefix(data[2], "HTTP/")
 
 		break
 	}

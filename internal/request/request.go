@@ -22,13 +22,13 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		return nil, fmt.Errorf("read fail")
 	}
 
-	var request Request
-	err = parseRequestLine(&request, req)
+	request := &Request{}
+	err = parseRequestLine(request, req)
 	if err != nil {
 		return nil, fmt.Errorf("parse fail")
 	}
 
-	return &request, nil
+	return request, nil
 }
 
 func parseRequestLine(request *Request, req []byte) error {

@@ -101,6 +101,7 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 func parseRequestLine(b []byte) (RequestLine, int, error) {
 	idx := bytes.Index(b, Separator)
 
+	// Return, not enough data
 	if idx == -1 {
 		return RequestLine{}, 0, nil
 	}

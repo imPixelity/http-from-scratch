@@ -1,10 +1,10 @@
 package main
 
 import (
-	"errors"
 	"fmt"
-	"io"
 	"net"
+
+	"http-scratch/internal/request"
 )
 
 func main() {
@@ -20,52 +20,13 @@ func main() {
 		}
 		fmt.Printf("connection established\n")
 
-		for line := range getLinesChannel(conn) {
-			fmt.Printf("read: %s\n", line)
+		req, err := request.RequestFromReader(conn)
+		if err != nil {
+			panic(err)
 		}
-
-		fmt.Printf("connection closed\n")
+		fmt.Printf("Request line:\n")
+		fmt.Printf("- Method: %s\n", req.RequestLine.Method)
+		fmt.Printf("- Target: %s\n", req.RequestLine.RequestTarget)
+		fmt.Printf("- Version: %s\n", req.RequestLine.HTTPVersion)
 	}
-}
-
-func getLinesChannel(conn net.Conn) <-chan string {
-	ch := make(chan string)
-
-	go func() {
-		defer close(ch)
-		defer conn.Close()
-		str := ""
-		buffer := make([]byte, 8)
-		for {
-			n, err := conn.Read(buffer)
-			isNewline := false
-
-			for k, v := range buffer[:n] {
-				if v == '\n' {
-					str += string(buffer[:k])
-					ch <- str
-					isNewline = true
-					str = ""
-					str += string(buffer[k+1 : n])
-					break
-				}
-			}
-
-			if !isNewline {
-				str += string(buffer[:n])
-			}
-
-			if err != nil {
-				if str != "" {
-					ch <- str
-				}
-				if errors.Is(err, io.EOF) {
-					break
-				}
-				fmt.Printf("%v", err)
-			}
-		}
-	}()
-
-	return ch
 }

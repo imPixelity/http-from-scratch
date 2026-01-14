@@ -33,8 +33,13 @@ type Request struct {
 	state       parserState
 }
 
+func (r *Request) done() bool {
+	return r.state == StateDone || r.state == StateError
+}
+
 func (r *Request) parse(data []byte) (int, error) {
 	read := 0
+
 outer:
 	for {
 		switch r.state {
@@ -61,12 +66,36 @@ outer:
 	return read, nil
 }
 
-func (r *Request) done() bool {
-	return r.state == StateDone || r.state == StateError
-}
-
 func newRequest() *Request {
 	return &Request{state: StateInit}
+}
+
+func RequestFromReader(reader io.Reader) (*Request, error) {
+	request := newRequest()
+
+	// Could overrun
+	buf := make([]byte, 1024)
+	bufLen := 0
+	for !request.done() {
+		// Read from buffer
+		n, err := reader.Read(buf[bufLen:])
+		if err != nil {
+			return nil, err
+		}
+
+		// Parse read buffer
+		bufLen += n
+		readN, err := request.parse(buf[:bufLen])
+		if err != nil {
+			return nil, err
+		}
+
+		// Move to beginning
+		copy(buf, buf[readN:bufLen])
+		bufLen -= readN
+	}
+
+	return request, nil
 }
 
 func parseRequestLine(b []byte) (RequestLine, int, error) {
@@ -79,15 +108,18 @@ func parseRequestLine(b []byte) (RequestLine, int, error) {
 	startLine := b[:idx]
 	read := idx + len(Separator)
 
+	// Split start line by 3
 	parts := bytes.Split(startLine, []byte(" "))
 	if len(parts) != 3 {
 		return RequestLine{}, 0, ErrMalformedReqLine
 	}
 
+	// Method only uppercase
 	if string(parts[0]) != strings.ToUpper(string(parts[0])) {
 		return RequestLine{}, 0, ErrMalformedReqLine
 	}
 
+	// Take version from HTTP/ and only accepting 1.1
 	httpParts := bytes.Split(parts[2], []byte("/"))
 	if len(httpParts) != 2 || string(httpParts[0]) != "HTTP" || string(httpParts[1]) != "1.1" {
 		return RequestLine{}, 0, ErrMalformedReqLine
@@ -100,30 +132,4 @@ func parseRequestLine(b []byte) (RequestLine, int, error) {
 	}
 
 	return rl, read, nil
-}
-
-func RequestFromReader(reader io.Reader) (*Request, error) {
-	request := newRequest()
-
-	buf := make([]byte, 1024)
-	bufLen := 0
-	for !request.done() {
-		// Read from buffer
-		n, err := reader.Read(buf[bufLen:])
-		if err != nil {
-			return nil, err
-		}
-
-		// Parse readed buffer
-		bufLen += n
-		readN, err := request.parse(buf[:bufLen])
-		if err != nil {
-			return nil, err
-		}
-
-		copy(buf, buf[readN:bufLen])
-		bufLen -= readN
-	}
-
-	return request, nil
 }

@@ -6,8 +6,22 @@ import (
 	"io"
 )
 
+var (
+	ErrReadFile         = errors.New("fail to read from reader")
+	ErrMalformedReqLine = errors.New("malformed request line")
+	Separator           = []byte("\r\n")
+)
+
+type StateStatus int
+
+const (
+	StateInit StateStatus = iota
+	StateDone
+)
+
 type Request struct {
 	RequestLine RequestLine
+	state       StateStatus
 }
 
 type RequestLine struct {
@@ -16,47 +30,70 @@ type RequestLine struct {
 	Method        string
 }
 
-var (
-	ErrReadFile         = errors.New("fail to read from reader")
-	ErrMalformedReqLine = errors.New("malformed request line")
-)
-
-func RequestFromReader(reader io.Reader) (*Request, error) {
-	buf, err := io.ReadAll(reader)
+func (r *Request) parse(data []byte) (int, error) {
+	rl, n, err := parseRequestLine(data)
 	if err != nil {
-		return nil, ErrReadFile
+		return 0, err
+	}
+	if n == 0 {
+		return n, nil
 	}
 
-	reqLine, err := parseRequestLine(buf)
-	if err != nil {
-		return nil, err
-	}
-
-	return &Request{
-		RequestLine: reqLine,
-	}, nil
+	r.state = StateDone
+	r.RequestLine = rl
+	return n, nil
 }
 
-func parseRequestLine(b []byte) (RequestLine, error) {
-	if idx := bytes.Index(b, []byte("\r\n")); idx != -1 {
+func RequestFromReader(reader io.Reader) (*Request, error) {
+	req := &Request{state: StateInit}
+	// Could full
+	buf := make([]byte, 1024)
+	bufPos := 0
+
+	for req.state != StateDone {
+		n, err := reader.Read(buf[bufPos:])
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				req.state = StateDone
+				break
+			}
+			return nil, ErrReadFile
+		}
+
+		bufPos += n
+		consumed, err := req.parse(buf[:bufPos])
+		if err != nil {
+			return nil, err
+		}
+
+		// Move unconsumed bytes to the front
+		copy(buf, buf[consumed:bufPos])
+		bufPos -= consumed
+	}
+	return req, nil
+}
+
+func parseRequestLine(b []byte) (RequestLine, int, error) {
+	if idx := bytes.Index(b, Separator); idx != -1 {
 		reqLine := b[:idx]
+		read := idx + len(Separator)
 		parts := bytes.Split(reqLine, []byte(" "))
 
 		if len(parts) != 3 {
-			return RequestLine{}, ErrMalformedReqLine
+			return RequestLine{}, 0, ErrMalformedReqLine
 		}
 
 		if ok := validateFormat(parts[0], parts[2]); !ok {
-			return RequestLine{}, ErrMalformedReqLine
+			return RequestLine{}, 0, ErrMalformedReqLine
 		}
 
 		return RequestLine{
 			Method:        string(parts[0]),
 			RequestTarget: string(parts[1]),
 			HTTPVersion:   string(bytes.TrimPrefix(parts[2], []byte("HTTP/"))),
-		}, nil
+		}, read, nil
 	}
-	return RequestLine{}, ErrMalformedReqLine
+	return RequestLine{}, 0, nil
 }
 
 func validateFormat(method []byte, version []byte) bool {

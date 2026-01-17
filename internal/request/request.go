@@ -4,23 +4,25 @@ import (
 	"bytes"
 	"errors"
 	"io"
-	"strings"
 )
 
 var (
-	ErrMalformedReqLine       = errors.New("malformed request line")
-	ErrUnsupportedHTTPVersion = errors.New("unsupported HTTP version")
-	ErrReqInErrorState        = errors.New("request in error state")
-	Separator                 = []byte("\r\n")
+	ErrReadFile         = errors.New("fail to read from reader")
+	ErrMalformedReqLine = errors.New("malformed request line")
+	Separator           = []byte("\r\n")
 )
 
-type parserState string
+type StateStatus int
 
 const (
-	StateInit  parserState = "init"
-	StateDone  parserState = "done"
-	StateError parserState = "error"
+	StateInit StateStatus = iota
+	StateDone
 )
+
+type Request struct {
+	RequestLine RequestLine
+	state       StateStatus
+}
 
 type RequestLine struct {
 	HTTPVersion   string
@@ -28,109 +30,82 @@ type RequestLine struct {
 	Method        string
 }
 
-type Request struct {
-	RequestLine RequestLine
-	state       parserState
-}
-
-func (r *Request) done() bool {
-	return r.state == StateDone || r.state == StateError
-}
-
 func (r *Request) parse(data []byte) (int, error) {
-	read := 0
-
-outer:
-	for {
-		switch r.state {
-		case StateError:
-			return 0, ErrReqInErrorState
-		case StateInit:
-			rl, n, err := parseRequestLine(data[read:])
-			if err != nil {
-				r.state = StateError
-				return 0, err
-			}
-
-			if n == 0 {
-				break outer
-			}
-
-			r.RequestLine = rl
-			read += n
-			r.state = StateDone
-		case StateDone:
-			break outer
-		}
+	rl, n, err := parseRequestLine(data)
+	if err != nil {
+		return 0, err
 	}
-	return read, nil
-}
+	if n == 0 {
+		return n, nil
+	}
 
-func newRequest() *Request {
-	return &Request{state: StateInit}
+	r.state = StateDone
+	r.RequestLine = rl
+	return n, nil
 }
 
 func RequestFromReader(reader io.Reader) (*Request, error) {
-	request := newRequest()
-
-	// Could overrun
+	req := &Request{state: StateInit}
+	// Could full
 	buf := make([]byte, 1024)
-	bufLen := 0
-	for !request.done() {
-		// Read from buffer
-		n, err := reader.Read(buf[bufLen:])
+	bufPos := 0
+
+	for req.state != StateDone {
+		n, err := reader.Read(buf[bufPos:])
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				req.state = StateDone
+				break
+			}
+			return nil, ErrReadFile
+		}
+
+		bufPos += n
+		consumed, err := req.parse(buf[:bufPos])
 		if err != nil {
 			return nil, err
 		}
 
-		// Parse read buffer
-		bufLen += n
-		readN, err := request.parse(buf[:bufLen])
-		if err != nil {
-			return nil, err
-		}
-
-		// Move to beginning
-		copy(buf, buf[readN:bufLen])
-		bufLen -= readN
+		// Move unconsumed bytes to the front
+		copy(buf, buf[consumed:bufPos])
+		bufPos -= consumed
 	}
-
-	return request, nil
+	return req, nil
 }
 
 func parseRequestLine(b []byte) (RequestLine, int, error) {
-	idx := bytes.Index(b, Separator)
+	if idx := bytes.Index(b, Separator); idx != -1 {
+		reqLine := b[:idx]
+		read := idx + len(Separator)
+		parts := bytes.Split(reqLine, []byte(" "))
 
-	// Return, not enough data
-	if idx == -1 {
-		return RequestLine{}, 0, nil
+		if len(parts) != 3 {
+			return RequestLine{}, 0, ErrMalformedReqLine
+		}
+
+		if ok := validateFormat(parts[0], parts[2]); !ok {
+			return RequestLine{}, 0, ErrMalformedReqLine
+		}
+
+		return RequestLine{
+			Method:        string(parts[0]),
+			RequestTarget: string(parts[1]),
+			HTTPVersion:   string(bytes.TrimPrefix(parts[2], []byte("HTTP/"))),
+		}, read, nil
 	}
+	return RequestLine{}, 0, nil
+}
 
-	startLine := b[:idx]
-	read := idx + len(Separator)
-
-	// Split start line by 3
-	parts := bytes.Split(startLine, []byte(" "))
-	if len(parts) != 3 {
-		return RequestLine{}, 0, ErrMalformedReqLine
-	}
-
+func validateFormat(method []byte, version []byte) bool {
 	// Method only uppercase
-	if string(parts[0]) != strings.ToUpper(string(parts[0])) {
-		return RequestLine{}, 0, ErrMalformedReqLine
+	if !bytes.Equal(method, bytes.ToUpper(method)) {
+		return false
 	}
 
-	// Take version from HTTP/ and only accepting 1.1
-	httpParts := bytes.Split(parts[2], []byte("/"))
-	if len(httpParts) != 2 || string(httpParts[0]) != "HTTP" || string(httpParts[1]) != "1.1" {
-		return RequestLine{}, 0, ErrMalformedReqLine
+	// Version only accepting 1.1
+	if !bytes.Equal(version, []byte("HTTP/1.1")) {
+		return false
 	}
 
-	rl := RequestLine{
-		Method:        string(parts[0]),
-		RequestTarget: string(parts[1]),
-		HTTPVersion:   string(httpParts[1]),
-	}
-
-	return rl, read, nil
+	return true
 }

@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"errors"
 	"io"
+
+	"http-scratch/internal/headers"
 )
 
 var (
 	ErrReadFile         = errors.New("fail to read from reader")
+	ErrParseHeaders     = errors.New("fail to parse headers")
 	ErrMalformedReqLine = errors.New("malformed request line")
 	Separator           = []byte("\r\n")
 )
@@ -16,11 +19,13 @@ type StateStatus int
 
 const (
 	StateInit StateStatus = iota
+	StateHeaders
 	StateDone
 )
 
 type Request struct {
 	RequestLine RequestLine
+	Headers     headers.Headers
 	state       StateStatus
 }
 
@@ -38,17 +43,17 @@ func (r *Request) parse(data []byte) (int, error) {
 	if n == 0 {
 		return n, nil
 	}
-
-	r.state = StateDone
+	r.state = StateHeaders
 	r.RequestLine = rl
 	return n, nil
 }
 
 func RequestFromReader(reader io.Reader) (*Request, error) {
-	req := &Request{state: StateInit}
+	req := &Request{Headers: headers.Headers{}, state: StateInit}
 	// Could full
 	buf := make([]byte, 1024)
 	bufPos := 0
+	consumed := 0
 
 	for req.state != StateDone {
 		n, err := reader.Read(buf[bufPos:])
@@ -61,9 +66,18 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		}
 
 		bufPos += n
-		consumed, err := req.parse(buf[:bufPos])
-		if err != nil {
-			return nil, err
+
+		switch req.state {
+		case StateInit:
+			consumed, err = req.parse(buf[:bufPos])
+			if err != nil {
+				return nil, err
+			}
+		case StateHeaders:
+			consumed, _, err = req.Headers.Parse(buf[:bufPos])
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		// Move unconsumed bytes to the front
@@ -106,6 +120,5 @@ func validateFormat(method []byte, version []byte) bool {
 	if !bytes.Equal(version, []byte("HTTP/1.1")) {
 		return false
 	}
-
 	return true
 }

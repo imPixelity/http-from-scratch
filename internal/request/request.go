@@ -49,20 +49,22 @@ func (r *Request) parse(data []byte) (int, error) {
 }
 
 func RequestFromReader(reader io.Reader) (*Request, error) {
-	req := &Request{Headers: headers.Headers{}, state: StateInit}
-	// Could full
+	req := &Request{Headers: headers.NewHeaders(), state: StateInit}
 	buf := make([]byte, 1024)
 	bufPos := 0
 	consumed := 0
 
 	for req.state != StateDone {
 		n, err := reader.Read(buf[bufPos:])
+
+		// Handle EOF separately, still process buffer first
+		isEOF := false
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				req.state = StateDone
-				break
+				isEOF = true
+			} else {
+				return nil, ErrReadFile
 			}
-			return nil, ErrReadFile
 		}
 
 		bufPos += n
@@ -74,15 +76,27 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 				return nil, err
 			}
 		case StateHeaders:
-			consumed, _, err = req.Headers.Parse(buf[:bufPos])
+			done := false
+			consumed, done, err = req.Headers.Parse(buf[:bufPos])
 			if err != nil {
 				return nil, err
+			}
+			if done {
+				req.state = StateDone
 			}
 		}
 
 		// Move unconsumed bytes to the front
 		copy(buf, buf[consumed:bufPos])
 		bufPos -= consumed
+
+		// Now check EOF after processing remaining buffer
+		if isEOF {
+			if req.state == StateHeaders {
+				return nil, ErrParseHeaders
+			}
+			break
+		}
 	}
 	return req, nil
 }

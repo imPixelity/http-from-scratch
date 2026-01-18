@@ -16,8 +16,9 @@ var (
 
 type Headers map[string]string
 
-func (h Headers) Get(name string) string {
-	return h[strings.ToLower(name)]
+func (h Headers) Get(name string) (string, bool) {
+	str, ok := h[strings.ToLower(name)]
+	return str, ok
 }
 
 func (h Headers) Set(name, value string) {
@@ -26,6 +27,12 @@ func (h Headers) Set(name, value string) {
 		h[name] = fmt.Sprintf("%s,%s", v, value)
 	} else {
 		h[name] = value
+	}
+}
+
+func (h Headers) ForEach(fn func(n, v string)) {
+	for n, v := range h {
+		fn(n, v)
 	}
 }
 

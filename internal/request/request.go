@@ -104,7 +104,7 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 			consumed = len(buf[:bufPos])
 
 			if len(req.Body) > cl {
-				return nil, ErrParseHeaders
+				return nil, ErrParseBody
 			}
 			if len(req.Body) == cl {
 				req.state = StateDone

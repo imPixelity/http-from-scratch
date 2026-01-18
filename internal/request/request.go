@@ -4,13 +4,16 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"strconv"
 
 	"http-scratch/internal/headers"
 )
 
 var (
+	ErrConvertType      = errors.New("fail to convert data type")
 	ErrReadFile         = errors.New("fail to read from reader")
 	ErrParseHeaders     = errors.New("fail to parse headers")
+	ErrParseBody        = errors.New("fail to parse body")
 	ErrMalformedReqLine = errors.New("malformed request line")
 	Separator           = []byte("\r\n")
 )
@@ -19,13 +22,15 @@ type StateStatus int
 
 const (
 	StateInit StateStatus = iota
-	StateHeaders
+	StateParseHeaders
+	StateParseBody
 	StateDone
 )
 
 type Request struct {
 	RequestLine RequestLine
 	Headers     headers.Headers
+	Body        []byte
 	state       StateStatus
 }
 
@@ -43,7 +48,7 @@ func (r *Request) parse(data []byte) (int, error) {
 	if n == 0 {
 		return n, nil
 	}
-	r.state = StateHeaders
+	r.state = StateParseHeaders
 	r.RequestLine = rl
 	return n, nil
 }
@@ -52,9 +57,9 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 	req := &Request{Headers: headers.NewHeaders(), state: StateInit}
 	buf := make([]byte, 1024)
 	bufPos := 0
-	consumed := 0
 
 	for req.state != StateDone {
+		consumed := 0
 		n, err := reader.Read(buf[bufPos:])
 
 		// Handle EOF separately, still process buffer first
@@ -75,13 +80,33 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 			if err != nil {
 				return nil, err
 			}
-		case StateHeaders:
+		case StateParseHeaders:
 			done := false
 			consumed, done, err = req.Headers.Parse(buf[:bufPos])
 			if err != nil {
 				return nil, err
 			}
 			if done {
+				req.state = StateParseBody
+			}
+		case StateParseBody:
+			clStr := req.Headers.Get("content-length")
+			if clStr == "" {
+				break
+			}
+
+			cl, err := strconv.Atoi(clStr)
+			if err != nil {
+				return nil, ErrConvertType
+			}
+
+			req.Body = append(req.Body, buf[:bufPos]...)
+			consumed = len(buf[:bufPos])
+
+			if len(req.Body) > cl {
+				return nil, ErrParseHeaders
+			}
+			if len(req.Body) == cl {
 				req.state = StateDone
 			}
 		}
@@ -92,10 +117,19 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 
 		// Now check EOF after processing remaining buffer
 		if isEOF {
-			if req.state == StateHeaders {
+			if req.state == StateParseHeaders {
 				return nil, ErrParseHeaders
 			}
-			break
+
+			if req.state == StateParseBody {
+				cl := req.Headers.Get("content-length")
+				if cl != "" {
+					// Body was expected, but incomplete
+					return nil, ErrParseBody
+				}
+				// No Content-Length, no body expected
+				req.state = StateDone
+			}
 		}
 	}
 	return req, nil

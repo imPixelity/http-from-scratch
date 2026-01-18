@@ -36,7 +36,7 @@ func (h Headers) Parse(data []byte) (int, bool, error) {
 	for {
 		idx := bytes.Index(data[read:], Separator)
 		if idx == -1 {
-			return 0, isDone, ErrMalformedLine
+			return read, isDone, nil
 		}
 
 		// Empty Header

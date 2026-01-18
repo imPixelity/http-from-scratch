@@ -14,8 +14,9 @@ var (
 
 type Headers map[string]string
 
-func (h Headers) Get(key string) string {
-	return h[strings.ToLower(key)]
+func (h Headers) Get(name string) (string, bool) {
+	str, ok := h[strings.ToLower(name)]
+	return str, ok
 }
 
 func (h Headers) Set(key, value string) {
@@ -23,6 +24,12 @@ func (h Headers) Set(key, value string) {
 	if v, ok := h[key]; ok {
 		h[key] = v + "," + value
 		return
+	}
+}
+
+func (h Headers) ForEach(fn func(n, v string)) {
+	for n, v := range h {
+		fn(n, v)
 	}
 }
 

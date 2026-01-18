@@ -21,10 +21,10 @@ var (
 type StateStatus int
 
 const (
-	StateInit StateStatus = iota
-	StateParseHeaders
-	StateParseBody
-	StateDone
+	StateInit    parserState = "init"
+	StateHeaders parserState = "headers"
+	StateDone    parserState = "done"
+	StateError   parserState = "error"
 )
 
 type Request struct {
@@ -40,17 +40,70 @@ type RequestLine struct {
 	Method        string
 }
 
+type Request struct {
+	RequestLine RequestLine
+	Headers     headers.Headers
+	state       parserState
+}
+
+func (r *Request) done() bool {
+	return r.state == StateDone || r.state == StateError
+}
+
 func (r *Request) parse(data []byte) (int, error) {
-	rl, n, err := parseRequestLine(data)
-	if err != nil {
-		return 0, err
+	read := 0
+
+outer:
+	for {
+		currentData := data[read:]
+
+		switch r.state {
+		case StateError:
+			return 0, ErrReqInErrorState
+
+		case StateInit:
+			rl, n, err := parseRequestLine(currentData)
+			if err != nil {
+				r.state = StateError
+				return 0, err
+			}
+
+			if n == 0 {
+				break outer
+			}
+
+			r.RequestLine = rl
+			read += n
+			r.state = StateHeaders
+
+		case StateHeaders:
+			n, done, err := r.Headers.Parse(currentData)
+			if err != nil {
+				return 0, err
+			}
+
+			if n == 0 {
+				break outer
+			}
+
+			read += n
+
+			if done {
+				r.state = StateDone
+			}
+
+		case StateDone:
+			break outer
+
+		default:
+			panic("yo")
+		}
 	}
-	if n == 0 {
-		return n, nil
-	}
-	r.state = StateParseHeaders
-	r.RequestLine = rl
-	return n, nil
+	return read, nil
+}
+
+func newRequest() *Request {
+	return &Request{state: StateInit, Headers: headers.NewHeaders()}
 }
 
 func RequestFromReader(reader io.Reader) (*Request, error) {

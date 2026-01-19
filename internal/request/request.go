@@ -46,7 +46,7 @@ func (r *Request) done() bool {
 
 func (r *Request) hasBody() bool {
 	cl := getInt(r.Headers, "content-length", 0)
-	return cl != 0
+	return cl > 0
 }
 
 func (r *Request) parse(data []byte) (int, error) {

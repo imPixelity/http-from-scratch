@@ -21,10 +21,11 @@ var (
 type StateStatus int
 
 const (
-	StateInit StateStatus = iota
-	StateParseHeaders
-	StateParseBody
-	StateDone
+	StateInit    parserState = "init"
+	StateHeaders parserState = "headers"
+	StateBody    parserState = "body"
+	StateDone    parserState = "done"
+	StateError   parserState = "error"
 )
 
 type Request struct {
@@ -40,17 +41,96 @@ type RequestLine struct {
 	Method        string
 }
 
+type Request struct {
+	RequestLine RequestLine
+	Headers     headers.Headers
+	Body        string
+	state       parserState
+}
+
+func (r *Request) done() bool {
+	return r.state == StateDone || r.state == StateError
+}
+
+func (r *Request) hasBody() bool {
+	cl := getInt(r.Headers, "content-length", 0)
+	return cl != 0
+}
+
 func (r *Request) parse(data []byte) (int, error) {
-	rl, n, err := parseRequestLine(data)
-	if err != nil {
-		return 0, err
+	read := 0
+
+outer:
+	for {
+		currentData := data[read:]
+
+		switch r.state {
+		case StateError:
+			return 0, ErrReqInErrorState
+
+		case StateInit:
+			rl, n, err := parseRequestLine(currentData)
+			if err != nil {
+				r.state = StateError
+				return 0, err
+			}
+
+			if n == 0 {
+				break outer
+			}
+
+			r.RequestLine = rl
+			read += n
+			r.state = StateHeaders
+
+		case StateHeaders:
+			n, done, err := r.Headers.Parse(currentData)
+			if err != nil {
+				r.state = StateError
+				return 0, err
+			}
+
+			if n == 0 {
+				break outer
+			}
+
+			read += n
+
+			if done {
+				if r.hasBody() {
+					r.state = StateBody
+				} else {
+					r.state = StateDone
+				}
+			}
+
+		case StateBody:
+			cl := getInt(r.Headers, "content-length", 0)
+
+			if cl == 0 {
+				panic("yes")
+			}
+
+			remaining := min(cl-len(r.Body), len(currentData))
+			r.Body += string(currentData[:remaining])
+			read += remaining
+
+			if len(r.Body) == cl {
+				r.state = StateDone
+			}
+
+		case StateDone:
+			break outer
+
+		default:
+			panic("yo")
+		}
 	}
-	if n == 0 {
-		return n, nil
-	}
-	r.state = StateParseHeaders
-	r.RequestLine = rl
-	return n, nil
+	return read, nil
+}
+
+func newRequest() *Request {
+	return &Request{state: StateInit, Headers: headers.NewHeaders(), Body: ""}
 }
 
 func RequestFromReader(reader io.Reader) (*Request, error) {
@@ -169,4 +249,16 @@ func validateFormat(method []byte, version []byte) bool {
 		return false
 	}
 	return true
+}
+
+func getInt(h headers.Headers, name string, defaultVal int) int {
+	valStr, ok := h.Get(name)
+	if !ok {
+		return defaultVal
+	}
+	val, err := strconv.Atoi(valStr)
+	if err != nil {
+		return defaultVal
+	}
+	return val
 }

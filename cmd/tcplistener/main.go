@@ -29,10 +29,10 @@ func main() {
 		fmt.Printf("- Target: %s\n", req.RequestLine.RequestTarget)
 		fmt.Printf("- Version: %s\n", req.RequestLine.HTTPVersion)
 		fmt.Printf("Headers:\n")
-		req.Headers.ForEach(func(n, v string) {
-			fmt.Printf("- %s: %s\n", n, v)
-		})
+		for k, v := range req.Headers {
+			fmt.Printf("- %s: %s\n", k, v)
+		}
 		fmt.Printf("Body:\n")
-		fmt.Printf("%s\n", req.Body)
+		fmt.Printf("%s\n", string(req.Body))
 	}
 }

@@ -14,9 +14,8 @@ var (
 
 type Headers map[string]string
 
-func (h Headers) Get(name string) (string, bool) {
-	str, ok := h[strings.ToLower(name)]
-	return str, ok
+func (h Headers) Get(key string) string {
+	return h[strings.ToLower(key)]
 }
 
 func (h Headers) Set(key, value string) {
@@ -25,45 +24,7 @@ func (h Headers) Set(key, value string) {
 		h[key] = v + "," + value
 		return
 	}
-}
-
-func (h Headers) ForEach(fn func(n, v string)) {
-	for n, v := range h {
-		fn(n, v)
-	}
-}
-
-func (h Headers) Parse(data []byte) (int, bool, error) {
-	read := 0
-	isDone := false
-
-	for {
-		idx := bytes.Index(data[read:], Separator)
-		if idx == -1 {
-			return read, isDone, nil
-		}
-
-		// Empty Header
-		if idx == 0 {
-			isDone = true
-			read += idx + len(Separator)
-			break
-		}
-
-		key, value, err := parseHeader(data[read : read+idx])
-		if err != nil {
-			return 0, isDone, err
-		}
-
-		if !isToken([]byte(key)) {
-			return 0, isDone, ErrMalformedHeaderName
-		}
-
-		read += idx + len(Separator)
-		h.Set(key, value)
-	}
-
-	return read, isDone, nil
+	h[key] = value
 }
 
 func NewHeaders() Headers {

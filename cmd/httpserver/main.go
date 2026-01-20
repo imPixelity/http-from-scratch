@@ -1,18 +1,37 @@
 package main
 
 import (
+	"io"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"http-scratch/internal/request"
+	"http-scratch/internal/response"
 	"http-scratch/internal/server"
 )
 
 const port = 42069
 
 func main() {
-	s, err := server.Serve(port)
+	s, err := server.Serve(port, func(w io.Writer, req *request.Request) *server.HandlerError {
+		switch req.RequestLine.RequestTarget {
+		case "/yourproblem":
+			return &server.HandlerError{
+				StatusCode: response.StatusBadRequest,
+				Message:    "Your problem is not my problem\n",
+			}
+		case "/myproblem":
+			return &server.HandlerError{
+				StatusCode: response.StatusInternalServerError,
+				Message:    "Woopsie, my bad\n",
+			}
+		default:
+			w.Write([]byte("All good frfr\n"))
+		}
+		return nil
+	})
 	if err != nil {
 		log.Fatalf("Error starting server: %v", err)
 	}

@@ -1,11 +1,15 @@
 package server
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"strconv"
 	"sync/atomic"
 
+	"http-scratch/internal/request"
 	"http-scratch/internal/response"
 )
 
@@ -16,6 +20,7 @@ var (
 
 type Server struct {
 	listener  net.Listener
+	handler   Handler
 	isRunning atomic.Bool
 }
 
@@ -45,11 +50,32 @@ func (s *Server) handle(conn net.Conn) {
 	}
 
 	headers := response.GetDefaultHeaders(0)
-	response.WriteStatusLine(conn, response.StatusOK)
+	request, err := request.RequestFromReader(conn)
+	if err != nil {
+		response.WriteStatusLine(conn, response.StatusBadRequest)
+		response.WriteHeaders(conn, headers)
+		return
+	}
+
+	writer := bytes.NewBuffer([]byte{})
+	handlerError := s.handler(writer, request)
+
+	var body []byte = nil
+	status := response.StatusOK
+	if handlerError != nil {
+		status = handlerError.StatusCode
+		body = []byte(handlerError.Message)
+	} else {
+		body = writer.Bytes()
+	}
+
+	headers.Replace("Content-Length", strconv.Itoa(len(body)))
+	response.WriteStatusLine(conn, status)
 	response.WriteHeaders(conn, headers)
+	conn.Write(body)
 }
 
-func Serve(port int) (*Server, error) {
+func Serve(port int, handler Handler) (*Server, error) {
 	addr := fmt.Sprintf(":%d", port)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -58,9 +84,17 @@ func Serve(port int) (*Server, error) {
 
 	server := &Server{
 		listener: listener,
+		handler:  handler,
 	}
 	server.isRunning.Store(true)
 
 	go server.listen()
 	return server, nil
 }
+
+type HandlerError struct {
+	StatusCode response.StatusCode
+	Message    string
+}
+
+type Handler func(w io.Writer, req *request.Request) *HandlerError

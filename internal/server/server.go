@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"sync/atomic"
+
+	"http-scratch/internal/response"
 )
 
 var (
@@ -42,8 +44,9 @@ func (s *Server) handle(conn net.Conn) {
 		return
 	}
 
-	data := []byte("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 13\r\n\r\nHello World!\n")
-	conn.Write(data)
+	headers := response.GetDefaultHeaders(0)
+	response.WriteStatusLine(conn, response.StatusOK)
+	response.WriteHeaders(conn, headers)
 }
 
 func Serve(port int) (*Server, error) {

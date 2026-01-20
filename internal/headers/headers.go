@@ -30,6 +30,11 @@ func (h Headers) Set(name, value string) {
 	}
 }
 
+func (h Headers) Replace(name, value string) {
+	name = strings.ToLower(name)
+	h[name] = value
+}
+
 func (h Headers) ForEach(fn func(n, v string)) {
 	for n, v := range h {
 		fn(n, v)

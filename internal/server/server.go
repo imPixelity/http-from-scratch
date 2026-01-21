@@ -18,6 +18,13 @@ var (
 	ErrCloseServer  = errors.New("fail to close")
 )
 
+type HandlerError struct {
+	StatusCode response.StatusCode
+	Message    string
+}
+
+type Handler func(w io.Writer, req *request.Request) *HandlerError
+
 type Server struct {
 	listener  net.Listener
 	handler   Handler
@@ -91,10 +98,3 @@ func Serve(port int, handler Handler) (*Server, error) {
 	go server.listen()
 	return server, nil
 }
-
-type HandlerError struct {
-	StatusCode response.StatusCode
-	Message    string
-}
-
-type Handler func(w io.Writer, req *request.Request) *HandlerError

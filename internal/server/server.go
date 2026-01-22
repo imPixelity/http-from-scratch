@@ -67,7 +67,7 @@ func (s *Server) handle(conn net.Conn) {
 	writer := bytes.NewBuffer([]byte{})
 	handlerError := s.handler(writer, request)
 
-	var body []byte = nil
+	var body []byte
 	status := response.StatusOK
 	if handlerError != nil {
 		status = handlerError.StatusCode

@@ -20,7 +20,8 @@ const (
 )
 
 func WriteStatusLine(w io.Writer, statusCode StatusCode) error {
-	statusLine := []byte{}
+	// statusLine := []byte{}
+	var statusLine []byte
 	switch statusCode {
 	case StatusOK:
 		statusLine = []byte("HTTP/1.1 200 OK\r\n")

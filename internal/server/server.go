@@ -1,12 +1,10 @@
 package server
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"io"
+	"log"
 	"net"
-	"strconv"
 	"sync/atomic"
 
 	"http-scratch/internal/request"
@@ -23,7 +21,7 @@ type HandlerError struct {
 	Message    string
 }
 
-type Handler func(w io.Writer, req *request.Request) *HandlerError
+type Handler func(w *response.Writer, req *request.Request)
 
 type Server struct {
 	listener  net.Listener
@@ -43,7 +41,11 @@ func (s *Server) listen() {
 	for {
 		conn, err := s.listener.Accept()
 		if err != nil {
-			return
+			if !s.isRunning.Load() {
+				return
+			}
+			log.Printf("Error accepting connection: %v", err)
+			continue
 		}
 
 		go s.handle(conn)
@@ -56,30 +58,15 @@ func (s *Server) handle(conn net.Conn) {
 		return
 	}
 
-	headers := response.GetDefaultHeaders(0)
+	responseWriter := response.NewWriter(conn)
 	request, err := request.RequestFromReader(conn)
 	if err != nil {
-		response.WriteStatusLine(conn, response.StatusBadRequest)
-		response.WriteHeaders(conn, headers)
+		responseWriter.WriteStatusLine(response.StatusBadRequest)
+		responseWriter.WriteHeaders(response.GetDefaultHeaders(0))
 		return
 	}
 
-	writer := bytes.NewBuffer([]byte{})
-	handlerError := s.handler(writer, request)
-
-	var body []byte
-	status := response.StatusOK
-	if handlerError != nil {
-		status = handlerError.StatusCode
-		body = []byte(handlerError.Message)
-	} else {
-		body = writer.Bytes()
-	}
-
-	headers.Replace("Content-Length", strconv.Itoa(len(body)))
-	response.WriteStatusLine(conn, status)
-	response.WriteHeaders(conn, headers)
-	conn.Write(body)
+	s.handler(responseWriter, request)
 }
 
 func Serve(port int, handler Handler) (*Server, error) {
